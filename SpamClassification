@@ -1,0 +1,353 @@
+# Install libraries
+import numpy as np
+import pandas as pd 
+import string 
+import re 
+
+# Visualization
+import seaborn as sns
+import matplotlib.pyplot as plt
+%matplotlib inline
+
+# Modeling libraries
+import sklearn
+from sklearn.pipeline import Pipeline
+from sklearn.feature_extraction.text import CountVectorizer,TfidfVectorizer,TfidfTransformer
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.naive_bayes import CategoricalNB
+from sklearn.naive_bayes import ComplementNB
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix, f1_score, accuracy_score,precision_score, recall_score,classification_report,roc_auc_score
+from sklearn.model_selection import cross_val_score,KFold 
+from sklearn.model_selection import GridSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import LabelEncoder
+
+# Natural language tool kit
+#!pip install nltk
+import nltk
+#nltk.download('punkt')
+import nltk.corpus
+#nltk.download('stopwords')
+from nltk.corpus import stopwords
+
+# Read the data
+data = pd.read_csv('SMS_Spam.csv')
+data.head()
+data.sample(10)
+
+# Data Description
+# Dimensions- size of the data
+data.shape
+# Information about the Dataset
+data.info()
+# Descriptive Statistics gives summary of each attribute in the dataset
+data.describe()
+
+# Data Cleaning
+# The quality of the data should be checked before we apply machine learning algorithms to improve computational time. This process makes our data suitable for further analysis such as visualizations and model building.
+# Renaming the columns for easy interpretation
+data.rename(columns = {'Column1' :'Label' , 'Column2':'Text'}, inplace =True)
+data.head()
+
+# Checking for missing data
+data.isna().sum()
+# Checking for null values
+data.isnull().sum()
+# Checking for duplicates
+data.duplicated().sum()
+# 403 duplicate entries are identified and removed
+
+# Removing duplicated values 
+data = data.drop_duplicates(keep = 'first')
+# recheck for duplicates
+data.duplicated().sum()
+#reduced data size
+data.shape
+
+# Exploratory Data Analysis (EDA)
+
+np.unique(data['Label'])
+
+# Lets check how many labels of data are 'spam' and 'ham'
+data['Label'].value_counts()
+# Visualize Label distribution  
+sns.barplot( x = data['Label'].value_counts().index, y = data['Label'].value_counts().values)
+plt.xlabel("Label")
+plt.ylabel('Count')
+plt.show()
+# 88% of the labels are ham and only 12% are spam. The ratio of spam to ham is 1:7 which means our data is imbalanced.¶
+
+# Word count and character count
+#data['word_count'] = data['Text'].apply(lambda n: len(n.split()))
+data['char_count'] = data['Text'].apply(len)
+# word count and sentence count using nltk
+data['word_count'] = data['Text'].apply(lambda x : len(nltk.word_tokenize(x)))
+data['sent_count'] = data['Text'].apply(lambda x : len(nltk.sent_tokenize(x)))
+data.head()
+# unique sentence count information for visualization purpose
+np.unique(data['sent_count'])
+# plot for ham / spam distribution based on sentence count
+d = data.groupby('sent_count')['Label'].value_counts(normalize=True).mul(100).rename('%label').reset_index()
+p1 = sns.catplot(x = 'sent_count',y = '%label', hue='Label',kind='bar', data=d)
+plt.show()
+# From the above plot, all the spam messages are found to be short messages with less than 10 sentences per text. 
+
+# Statistics of new columns
+data[['word_count','char_count','sent_count']].describe()
+
+# Statistics of new columns when Label is spam
+data[data['Label'] == 'spam'][['word_count','char_count','sent_count']].describe()
+
+# Statistics of new columns when Label is ham
+data[data['Label'] == 'ham'][['word_count','char_count','sent_count']].describe()
+
+# pairplot
+sns.pairplot(data, hue='Label')
+
+# Correlation matrix
+sns.heatmap(data[['word_count','char_count','sent_count']].corr(), annot = True)
+
+# Top frquent words in the raw dataset
+plt.figure(figsize=(10,10))
+words = ' '.join(data['Text']).split()
+w_freq = pd.Series(words).value_counts()
+#print(w_freq.head(20))
+w_freq.head(20).plot(kind='bar')
+plt.title("Top 20 frequent words in the data")
+plt.xticks(rotation = 45)
+plt.show()
+
+# The high frequency words in the ablove plot gives no information about spam. So we will clean the text in the next step.
+# Data Pre-Processing
+
+# Pre-Processing is an important phase in text processing. If the text contains a mix of uppercase and lowercase words data analysis becomes difficult.
+# To avoid that we will convert all the text into lowercase.
+# Punctuation or special characters which confuse the ML models should be removed.
+# A lot of common words called "stopwords" such as "a, an, the, is, at,on, my, etc" would not contribute much to data analysis and thus can be removed.
+# Most of the spam messages contain number which may be prize money or deals discounts etc. Hence numbers were not removed here.
+
+import re
+stop_words = stopwords.words('english')
+
+def preprocess(text):
+    
+    # convert to lower case
+    clean_text = text.lower()
+    
+    # Remove special characters
+    clean_text=re.sub(r"(@\[A-Za-z0-9]+)|([^0-9A-Za-z \t])|(\w+:\/\/\S+)|^rt|http.+?", "", clean_text)
+    
+    # Remove stopwords and punctuations
+    clean_text = " ".join([w for w in clean_text.split() if w not in stop_words and w not in string.punctuation] )
+    
+    return clean_text
+
+    
+data['Clean_Text'] = data['Text'].apply(preprocess)
+data['new_wc'] = data['Clean_Text'].apply(lambda n: len(n.split()))
+data.head()    
+
+# ham data frequency words plot
+ham_df = data[data['Label'] == 'ham']
+plt.figure(figsize=(10,10))
+words = ' '.join(ham_df['Clean_Text']).split()
+w_freq = pd.Series(words).value_counts()
+#print(w_freq.head(15))
+w_freq.head(15).plot(kind='bar')
+plt.title("Top 15 frequent words in the ham data")
+plt.xticks(rotation = 45)
+plt.show()
+
+# Spam data frequency words plot
+spam_df = data[data['Label'] == 'spam']
+plt.figure(figsize=(10,10))
+words = ' '.join(spam_df['Clean_Text']).split()
+w_freq = pd.Series(words).value_counts()
+#print(w_freq.head(15))
+w_freq.head(15).plot(kind='bar')
+plt.title("Top 15 frequent words in the Spam data")
+plt.xticks(rotation = 45)
+plt.show()
+
+# Discussions:
+# After preprocessing the data, we can now see the top frequent words in spam messages and ham messages in the above plots which will give us an idea of which words occur more often in spam messages. 'call', 'free' , 'claim', 'prize' are some of the words frequently occuring in spam messages.
+
+# Data Split
+# Split the data into 80/20 train and test sets.
+X = data['Clean_Text']
+y = data['Label'].values
+
+X_train, X_test, y_train, y_test = train_test_split(X,y, test_size= 0.20 , random_state =1234, shuffle = True)
+#X_train, X_test, y_train, y_test = train_test_split(X_bal, y_bal, test_size = 0.20, random_state = 100)
+print(X_train.shape)
+print(X_test.shape)
+print(y_train.shape)
+print(y_test.shape)
+
+#Feature Extraction
+#After the data is cleaned, it should be converted into numerical fromat for machine to understand. This is called feature extraction of text data. Here we will be using TF-IDF vectorizer.
+#By using TfidfVectorizer, we consider overall weightage of a word by measuring how often they appear in the sms messages.The words with higher scores of weight are deemed to be more significant. We will now apply tfidfvectorizer to the cleaned data.
+
+# TFidf vectorizer 
+tfidf = TfidfVectorizer(max_df = 0.95 ,min_df = 2, stop_words = 'english')
+#max_features= 2500  #max_features= 3000  #max_features= 4500
+
+# Vectorize the train data with tf-idf
+X_tr = tfidf.fit_transform(X_train).toarray()
+
+# Vectorize the test data with tf-idf
+X_te = tfidf.transform(X_test).toarray()
+print(X_tr.shape)
+print(X_te.shape)
+
+#Model building and Evaluation
+#Here we will focus on binary classification algorithmns such as:
+#1. Logistic Regression
+#2.Support vector Classifier
+#3. Naive Bayes- Gaussian, Multinomila, Bernoulli and Complement
+
+
+# Train and evaluate different regression models 
+
+def train_and_test_models(X_train, X_test, y_train, y_test):
+    
+    # Initialize different regression models
+    models = [
+               ("Logistic Regression",   LogisticRegression()),
+               ("Support Vector Classifier",  SVC()), 
+               ("Gaussian Naive Bayes",  GaussianNB()),
+               ("Multinomial Naive Bayes",  MultinomialNB()),
+               ("Bernoulli Naive Bayes",  BernoulliNB()),
+               ("Complement Naive Bayes",  ComplementNB())
+              ]
+    
+    # Create lists to store the results
+    model_names = []
+    tr_acc_values=[]
+    accuracy_values = []
+    precision_values = []    
+    recall_values = []
+    f1_values = []
+    
+               
+    # Fit and evaluate each model
+    for model_name, model in models:
+        
+        # fit model on train data
+        model.fit(X_train, y_train)               
+        
+        #predict on test data
+        y_pred = model.predict(X_test)
+        
+        #print(model_name,":\n",classification_report(y_test,y_pred))
+        #print("-------------------------------------------------------------")
+ 
+        # compute performance scores of test set
+        acc =  accuracy_score(y_test, y_pred)
+        pre =  precision_score(y_test, y_pred, average='weighted')
+        rec =  recall_score(y_test, y_pred, average='weighted')
+        f1 =   f1_score(y_test, y_pred, average='weighted')
+       
+        
+        model_names.append(model_name)
+        tr_acc_values.append(model.score(X_train, y_train)) 
+        accuracy_values .append(acc)
+        precision_values.append(pre)   
+        recall_values.append(rec)
+        f1_values.append(f1)
+                
+        metrics_df=pd.DataFrame({
+            'Model': model_names,
+            'Train_acc' :np.round(tr_acc_values,2) ,                    
+            'Accuracy' :np.round(accuracy_values,2),
+            'Precision': np.round(precision_values,2),
+            'Recall': np.round(recall_values,2),
+            'F1' : np.round(f1_values,2),
+           
+        })
+    return metrics_df
+
+# Evaluate Performance Metrics of the models with imbalanced data
+a = train_and_test_models(X_tr, X_te, y_train,y_test)
+a
+
+# We have used 6 supervised algorithms in model building.
+# Logistic Regression and SVC performed well with good scores as shown in the table above.
+# Out of the 4 naive bayes models, gaussian model has a low performance with test score of 0.85.
+# In the next step we will balance the data using SMOTE technique and check the results.
+# Synthetic Minority Oversampling Technique (SMOTE) for Imbalanced data
+# Synthetic samples of minority class( in this dataset spam) are generated to address bias issues and improve perfromance of the classifiers by making more accurate predictions. It helps to overcome overfitting problems.
+
+import imblearn
+from imblearn.over_sampling import SMOTE
+from collections import Counter
+
+counter = Counter(y_train)
+print('before:' , counter)
+smt = SMOTE()
+X_bal, y_bal = smt.fit_resample(X_tr, y_train)
+counter = Counter(y_bal)
+print('after:', counter)
+
+# Balanced data results
+train_and_test_models(X_bal, X_te, y_bal,y_test)
+
+# Results and Discussions:
+# Balancing the data and model evaluation improved the train score of gaussian naive bayes classifier only from 0.90 to 0.94.
+# There is no significant change in other models scores.
+# Next step is to perform hyperparameter tuning using grid search on gaussian naive bayes to see if there is an improvement in model perfromance.
+
+# Hyperparameter Tune Gaussian Naive Bayes using GridSearchCV
+# Grid Search Cv
+nb_classifier = GaussianNB()
+
+params_NB = {'var_smoothing': np.logspace(0,-9, num=100)}
+gs_NB = GridSearchCV(estimator=nb_classifier, 
+                 param_grid=params_NB, 
+                 cv=5,   # use any cross validation technique 
+                 verbose=1, 
+                 scoring='accuracy') 
+gs_NB.fit(X_bal, y_bal)
+
+gs_NB.best_params_
+gs_NB.best_score_
+gnb = GaussianNB(var_smoothing = 0.01)
+model = gnb.fit(X_bal, y_bal)
+y_pred = model.predict(X_te)
+print('train_score = ', np.round(model.score(X_bal, y_bal),2))
+print('test_score = ' , np.round(model.score(X_te, y_test),2))
+print(classification_report(y_test,y_pred))
+
+# Results
+# The scores of gaussian naive bayes model improved significantly after parameter tuning.
+Model	      train_acc	 test_acc	 Precision Recall	 F1
+Imbalanced	 0.90	      0.85	    0.93	   0.85	  0.87
+Balanced	   0.94	      0.85	    0.93     0.85	  0.88
+Tuned model	 0.97	      0.92	    0.95	   0.92	  0.93
+
+# Discussions and Conclusions
+Model	                train_acc	  test_acc	 Precision	 Recall	  F1
+Logistic regression   	0.97	     0.98	      0.98	     0.98	    0.98
+SVC	                    0.99	     0.97	      0.97	     0.97	    0.97
+Gaussian NB	            0.97	     0.92	      0.95	     0.92	    0.93
+Multinomial NB	        0.98	     0.96	      0.96	     0.96	    0.96
+Bernoulli NB	          0.98	     0.99	      0.99	     0.99	    0.99
+Complement NB	          0.98	     0.96	      0.96	     0.96	    0.96
+
+# The data is trained and tested using supervised models.
+# Used smote technique to address data imbalance.
+# Compared the results of the models.
+# For imbalanced data accuracy scores may not be a good choice of metric due to bias.
+# Hence Precision, recall and F1 scores are chosen to evalute the models performance.
+# Over all SVC, Naive Bayes performed better than logistic regression.
+
+# Ways to improve
+# Time complexity of machine learning models should also be considered an evaluation metric.
+# Clustering techniques can be used which may increase spam filtering efficiency.
+
