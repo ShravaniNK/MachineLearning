@@ -1,0 +1,545 @@
+# Install libraries
+import numpy as np
+import pandas as pd 
+import string 
+import re 
+
+# Visualization
+import seaborn as sns
+import matplotlib.pyplot as plt
+%matplotlib inline
+
+#! pip install yellowbrick
+from yellowbrick.cluster import KElbowVisualizer, SilhouetteVisualizer
+
+
+# Scaling and dimension reduction
+from sklearn.preprocessing import StandardScaler, Normalizer
+from sklearn.decomposition import PCA
+
+# Clustering algorithms
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
+from sklearn.mixture import GaussianMixture
+
+# Evaluation metrics
+from sklearn import metrics
+from sklearn.metrics import silhouette_score, davies_bouldin_score, calinski_harabasz_score
+from sklearn.metrics import pairwise_distances
+
+import warnings
+warnings.filterwarnings("ignore")
+
+# Read the data
+data = pd.read_csv('Credit_Card_Dataset.csv')
+data.head()
+
+# Dimensions- size of the data
+data.shape
+
+# Information about the Dataset
+data.info()
+
+# Descriptive Statistics gives summary of each attribute in the dataset
+data.describe()
+
+# Unique values in each column
+print(list(data['TENURE'].unique()))
+print(data['TENURE'].value_counts())
+
+# Checking for missing data
+data.isna().sum()
+
+# Checking for null values
+#data.isnull().sum()
+
+# replacing missing values with median of that column 
+data['CREDIT_LIMIT'] = data['CREDIT_LIMIT'].fillna(data['CREDIT_LIMIT'].median())
+data['MINIMUM_PAYMENTS'] = data['MINIMUM_PAYMENTS'].fillna(data['MINIMUM_PAYMENTS'].median())
+
+# Rechecking the data for null values
+data.isnull().sum()
+
+# Checking for duplicates
+data.duplicated().sum()
+
+# Ignoring the first column CUST_ID for data analysis
+data1 = data.iloc[:, 1:18]
+print(data1.shape)
+data1.head()
+
+# Violinplot to depict summary statistics and the density of each variable.
+fig =plt.figure(figsize =(15,15))
+
+for c in range(len(data1.columns)):
+    fig.add_subplot(6,3, c+1)
+    sns.violinplot(x = data1.iloc[:,c], inner='box',points ='all', fill=False)
+plt.show()
+
+# Boxplot for visualizing the distribution of data and to check for outliers.
+# ALL in ONE PLOT
+plt.figure(figsize = (15,15))
+data1.boxplot(vert=False)
+
+# Histograms to check for normality in the data
+fig = plt.figure(figsize = (20, 35))
+for i, col in enumerate(data1.columns):
+    ax = plt.subplot(6, 3, i+1)
+    plt.hist(data1[col], bins=20)
+    plt.xlabel(col, fontsize = 15)
+    plt.ylabel("Number of Records", fontsize = 15)
+    plt.grid()
+    
+
+# Statistical test to confirm that data does not follow noraml distribution.
+# The Shapiro-Wilk test tests the null hypothesis that the data was drawn from a normal distribution.
+import math
+from scipy.stats import shapiro 
+for c in data1.columns:
+    print(c,"=",shapiro(data1[c]))
+    
+    
+# Correlation
+data1.corr().round(2)    
+
+# Get most correlated pairs
+# your code here
+def get_redundant_pairs(df):
+    '''Get diagonal and lower triangular pairs of correlation matrix'''
+    pairs_to_drop = set()
+    cols = df.columns
+    for i in range(0, df.shape[1]):
+        for j in range(0, i+1):
+            pairs_to_drop.add((cols[i], cols[j]))
+    return pairs_to_drop
+
+def get_top_abs_correlations(df, n=20):
+    au_corr = df.corr().abs().unstack()
+    labels_to_drop = get_redundant_pairs(df)
+    au_corr = au_corr.drop(labels=labels_to_drop).sort_values(ascending=False)
+    return au_corr[0:n]
+
+print("Top Absolute Correlations Pairs:\n")
+print(round(get_top_abs_correlations(data1,5),2))
+
+plt.scatter('PURCHASES','ONEOFF_PURCHASES' , label = 'TENURE', data= data1 )
+plt.xlabel('PURCHASES')
+plt.ylabel('ONEOFF_PURCHASES')
+
+# PairPlot for whole dataset
+#plt.figure()
+#sns.pairplot(data1)
+#plt.show()
+
+# Visualizing the correlation matrix using heatmap
+plt.figure(figsize=(10,10))
+corr = data1.corr().round(2)
+sns.heatmap(corr, cmap='Blues', square = True, annot=True , linewidths = 0.5)
+plt.title('Correlation Plot')
+plt.show()
+
+# Scale the Data
+# Normalizer
+normalizer = Normalizer()
+#cols = data1.columns.tolist()
+norm_data = normalizer.fit_transform(data1)
+norm_df = pd.DataFrame(data = norm_data, columns = data1.columns)
+norm_df.head()
+
+# Dimensionality Reduction - PCA
+# PCA with normalized data
+pca = PCA()
+pca.fit(norm_df)
+cumsum = np.cumsum(pca.explained_variance_ratio_)
+d = np.argmax(cumsum >= 0.95)
+d
+
+# Plot
+plt.figure(figsize = (10,6))
+plt.plot(np.cumsum(pca.explained_variance_ratio_))
+plt.xlabel('number of components')
+plt.ylabel('explained variance')
+plt.grid()
+
+# set n_components to either d=5 or 0.95
+pca = PCA(n_components= d)
+X_pca = pca.fit_transform(norm_df)
+print(X_pca.shape)
+
+df_pca = pd.DataFrame(data = X_pca, columns = [f'PC{i+1}' for i in range(X_pca.shape[1])])
+df_pca.head()
+
+# visualize coefficients using heatmap
+plt.matshow(pca.components_, cmap ='viridis')
+plt.yticks([0,1,2,3,4],["1","2","3","4","5"])
+plt.colorbar()
+plt.xticks(range(len(data1.columns)),
+          data1.columns, rotation = 90, ha = 'left')
+plt.xlabel("Feature")
+plt.ylabel("Components")
+
+# Model Building - Clustering
+
+# 1. K-means clustering - a distance-based model
+
+# Elbow Method
+# within cluster sum of squares
+wcss = []
+for i in range(2,11):
+    kmeans = KMeans(n_clusters = i, init = 'k-means++', random_state = 42)
+    kmeans.fit(X_pca)
+    wcss.append(kmeans.inertia_)
+
+plt.figure(figsize = (10,6))
+plt.plot(range(2,11), wcss, marker = "o")
+plt.title('Elbow Method')
+plt.xlabel('Number of clusters')
+plt.ylabel('WCSS')
+plt.grid()
+plt.show()
+
+# Silhouette method 
+sil = []
+for k in range(2, 11):
+    kmeans = KMeans(n_clusters = k).fit(X_pca)
+    labels = kmeans.labels_
+    sil.append(silhouette_score(X_pca, labels, metric = 'euclidean'))
+
+plt.figure(figsize = (10,6))
+plt.plot(range(2,11), sil, marker = "o")
+plt.title("Silhouette Analysis")
+plt.xlabel('Number of clusters')
+plt.ylabel('Silhoutte Score')
+plt.grid()
+plt.show()
+
+# Distortion Score 
+plt.figure(figsize = (10,6))
+kmeans = KMeans( random_state=0)
+vis_elbow = KElbowVisualizer(kmeans, k = (2, 11))
+vis_elbow.fit(X_pca)
+vis_elbow.poof()
+
+# With k = 5 clusters
+kmeans = KMeans(n_clusters = 5, init = 'k-means++', random_state = 123)
+y_kmeans = kmeans.fit_predict(X_pca)
+labels = kmeans.labels_
+
+# Calculate clustering metrics
+si_score = silhouette_score(X_pca,labels )
+db_idx = davies_bouldin_score(X_pca,labels)
+ch_idx = calinski_harabasz_score(X_pca,labels)
+
+# Print the metrics
+print("For k = 5:")
+print('Silhouetter Score: %.2f' % si_score)
+print('Davies-Bouldin Index: %.2f' % db_idx)
+print('Calinski-Harabasz Index: %.2f' % ch_idx)
+
+# With k = 6 clusters
+kmeans = KMeans(n_clusters = 6, init = 'k-means++', random_state = 1233)
+y_kmeans = kmeans.fit_predict(X_pca)
+labels = y_kmeans
+#kmeans.labels_
+#print(np.unique(labels))
+
+# Calculate clustering metrics
+si_score = silhouette_score(X_pca,y_kmeans )
+db_idx = davies_bouldin_score(X_pca,labels)
+ch_idx = calinski_harabasz_score(X_pca,labels)
+
+# Print the metrics
+print("For k = 6:")
+print('Silhouetter Score: %.2f' % si_score)
+print('Davies-Bouldin Index: %.2f' % db_idx)
+print('Calinski-Harabasz Index: %.2f' % ch_idx)
+
+Clusters = pd.concat([data1, pd.DataFrame({'Cluster':labels+1})], axis=1)
+Clusters.head()
+# Visualize the distribution of clusters in the data
+sns.countplot(x ='Cluster' , data = Clusters)
+
+# 3D Model
+import plotly.graph_objects as go
+
+Plot = go.Figure()
+
+for i in list(np.unique(Clusters["Cluster"])):
+    Plot.add_trace(go.Scatter3d( x = Clusters[Clusters["Cluster"] == i]["BALANCE"],
+                                 y = Clusters[Clusters["Cluster"] == i]["PURCHASES"],
+                                 z = Clusters[Clusters["Cluster"] == i]["CREDIT_LIMIT"],
+                                mode = 'markers' , marker_size = 5 , marker_line_width = 1,
+                                name = str(i)))
+
+
+Plot.update_traces(hovertemplate = 'BALANCE:%{x} <br>PURCHASES %{y} <br> CREDIT_LIMIT:%{z}')
+
+Plot.update_layout(width= 800 , height = 800 , autosize =True , showlegend =True,
+                   scene = dict(xaxis = dict(title = 'BALANCE',titlefont_color = 'black'),
+                                yaxis = dict(title = 'PURCHASES',titlefont_color = 'black'),
+                                zaxis = dict(title = 'CREDIT_LIMIT',titlefont_color = 'black')),
+                   font = dict(family = "Gilroy" , color = 'black', size =12)
+                  )
+
+# 2. Hierarchical - Agglomerative Clustering - Bottom-up merging
+
+plt.figure(figsize = (12,10))
+from scipy.cluster.hierarchy import dendrogram, linkage, ward
+hc_cluster = linkage(X_pca, method = 'ward')
+#link_array = ward(X_pca)
+
+# plot 
+dendrogram(hc_cluster, truncate_mode = 'level', p = 5 , show_leaf_counts = False, no_labels = True )
+plt.title('Dendrogram')
+plt.ylabel('Euclidean distance')
+plt.show()
+
+hc = AgglomerativeClustering(n_clusters=3, affinity = 'euclidean', linkage = 'ward')
+y_hc = hc.fit_predict(X_pca)
+labels = y_hc
+#hc.labels_
+print(np.unique(labels))
+
+# Calculate clustering metrics
+si_score = silhouette_score(X_pca,labels )
+db_idx = davies_bouldin_score(X_pca,labels)
+ch_idx = calinski_harabasz_score(X_pca,labels)
+
+# Print the metrics
+print('Silhouetter Score: %.2f' % si_score)
+print('Davies-Bouldin Index: %.2f' % db_idx)
+print('Calinski-Harabasz Index: %.2f' % ch_idx)
+
+Clusters_hc = pd.concat([data1, pd.DataFrame({'Cluster':labels+1})], axis=1)
+Clusters_hc.head
+
+# Visualize the distribution of clusters in the data
+sns.countplot(x ='Cluster' , data = Clusters_hc)
+
+# 3D Model
+import plotly.graph_objects as go
+
+Plot = go.Figure()
+
+for i in list(np.unique(Clusters_hc["Cluster"])):
+    Plot.add_trace(go.Scatter3d( x = Clusters_hc[Clusters_hc["Cluster"] == i]["BALANCE"],
+                                 y = Clusters_hc[Clusters_hc["Cluster"] == i]["PURCHASES"],
+                                 z = Clusters_hc[Clusters_hc["Cluster"] == i]["CREDIT_LIMIT"],
+                                mode = 'markers' , marker_size = 5 , marker_line_width = 1,
+                                name = str(i)))
+
+
+Plot.update_traces(hovertemplate = 'BALANCE:%{x} <br>PURCHASES %{y} <br> CREDIT_LIMIT:%{z}')
+
+Plot.update_layout(width= 800 , height = 800 , autosize =True , showlegend =True,
+                   scene = dict(xaxis = dict(title = 'BALANCE',titlefont_color = 'black'),
+                                yaxis = dict(title = 'PURCHASES',titlefont_color = 'black'),
+                                zaxis = dict(title = 'CREDIT_LIMIT',titlefont_color = 'black')),
+                   font = dict(family = "Gilroy" , color = 'black', size =12)
+                  )
+
+# 3. Gaussian Mixture Model - a distribution-based model
+# Base model 
+gmm = GaussianMixture(n_components = 2)
+y_gmm = gmm.fit(X_pca)
+labels = y_gmm.predict(X_pca)
+print(np.unique(labels))
+# Calculate clustering metrics
+si_score = silhouette_score(X_pca,labels )
+db_idx = davies_bouldin_score(X_pca,labels)
+ch_idx = calinski_harabasz_score(X_pca,labels)
+
+# Print the metrics
+print('Silhouetter Score: %.2f' % si_score)
+print('Davies-Bouldin Index: %.2f' % db_idx)
+print('Calinski-Harabasz Index: %.2f' % ch_idx)
+
+# Hyperparameter Tuning
+from sklearn.model_selection import GridSearchCV
+
+def gmm_bic_score(estimator, X):
+    """Callable to pass to GridSearchCV that will use the BIC score."""
+    # Make it negative since GridSearchCV expects a score to maximize
+    return -estimator.bic(X)
+
+
+param_grid = {
+    "n_components": range(2,8),
+    "covariance_type": ["spherical", "tied", "diag", "full"],
+}
+grid_search = GridSearchCV(
+    GaussianMixture(), param_grid=param_grid, scoring=gmm_bic_score
+)
+grid_search.fit(X_pca)
+
+
+df = pd.DataFrame(grid_search.cv_results_) [
+    ["param_n_components", "param_covariance_type", "mean_test_score"]
+]
+
+df = df.rename(
+    columns={
+        "param_n_components": "Number of components",
+        "param_covariance_type": "Type of covariance",
+        "mean_test_score": "BIC score",
+    }
+)
+df.sort_values(by="BIC score").head(10)
+
+# Best model
+gmm = GaussianMixture(n_components = 2, covariance_type = 'tied', random_state=111 )
+y_gmm = gmm.fit(X_pca)
+labels = y_gmm.predict(X_pca)
+print(np.unique(labels))
+# Calculate clustering metrics
+si_score = silhouette_score(X_pca,labels )
+db_idx = davies_bouldin_score(X_pca,labels)
+ch_idx = calinski_harabasz_score(X_pca,labels)
+
+# Print the metrics
+print('Silhouetter Score: %.2f' % si_score)
+print('Davies-Bouldin Index: %.2f' % db_idx)
+print('Calinski-Harabasz Index: %.2f' % ch_idx)
+
+Clusters_gmm = pd.concat([data1, pd.DataFrame({'Cluster':labels+1})], axis=1)
+Clusters_gmm.head()
+
+# Visualize the distribution of clusters in the data
+sns.countplot(x ='Cluster' , data = Clusters_gmm)
+
+# 3D Model
+import plotly.graph_objects as go
+
+Plot = go.Figure()
+
+for i in list(np.unique(Clusters_gmm["Cluster"])):
+    Plot.add_trace(go.Scatter3d( x = Clusters_gmm[Clusters_gmm["Cluster"] == i]["BALANCE"],
+                                 y = Clusters_gmm[Clusters_gmm["Cluster"] == i]["PURCHASES"],
+                                 z = Clusters_gmm[Clusters_gmm["Cluster"] == i]["CREDIT_LIMIT"],
+                                mode = 'markers' , marker_size = 5 , marker_line_width = 1,
+                                name = str(i)))
+
+
+Plot.update_traces(hovertemplate = 'BALANCE:%{x} <br>PURCHASES %{y} <br> CREDIT_LIMIT:%{z}')
+
+Plot.update_layout(width= 800 , height = 800 , autosize =True , showlegend =True,
+                   scene = dict(xaxis = dict(title = 'BALANCE',titlefont_color = 'black'),
+                                yaxis = dict(title = 'PURCHASES',titlefont_color = 'black'),
+                                zaxis = dict(title = 'CREDIT_LIMIT',titlefont_color = 'black')),
+                   font = dict(family = "Gilroy" , color = 'black', size =12)
+                  )
+
+# 4. DBSCAN (Density-Based Spatial Clustering of Applications with Noise)
+from sklearn.neighbors import NearestNeighbors
+neigh = NearestNeighbors(n_neighbors=2)
+nbrs = neigh.fit(X_pca)
+distances, indices = nbrs.kneighbors(X_pca)
+# Plotting K-distance Graph
+distances = np.sort(distances, axis=0)
+distances = distances[:,1]
+plt.figure(figsize=(20,10))
+plt.plot(distances)
+plt.title('K-distance Graph',fontsize=20)
+plt.xlabel('Data Points sorted by distance',fontsize=14)
+plt.ylabel('Epsilon',fontsize=14)
+plt.show()
+
+# Hyperparameter tuning DBSCAN
+# Define a range of `eps` and `min_samples` values to try
+
+# the maximum distance two points can be from one another while still belonging to the same cluster
+eps_values = [0.12,0.13]
+
+# the fewest number of points required to form a cluster
+# MinPts = 2*dim, where dim= the dimensions of your data set 
+min_samples = [6,10,50,100,200,400,500]
+
+# Perform DBSCAN clustering with different combinations of `eps` and `min_samples`
+num_clusters=[]
+epsilon_values=[]
+min_samples_values =[]
+si_values=[]
+db_values=[]
+ch_values=[]
+ari_values=[]
+
+for i, eps in enumerate(eps_values):
+    for j, min_samp in enumerate(min_samples):
+       # print(eps,"&",min_samp)
+        dbscan = DBSCAN(eps=eps, min_samples=min_samp)
+        dbscan_labels = dbscan.fit_predict(X_pca)
+       
+        # Number of clusters in labels
+        n_clusters_ = len(np.unique(dbscan_labels)) 
+        #- (1 if -1 in dbscan_labels else 0) #, ignoring noise if present
+
+        # Calculate the silhouette score and adjusted Rand Index (ARI) score
+        si_score = silhouette_score(X_pca,dbscan_labels )
+        db_idx = davies_bouldin_score(X_pca,dbscan_labels)
+        ch_idx = calinski_harabasz_score(X_pca,dbscan_labels)
+        
+        # Append the values
+        num_clusters.append(n_clusters_)
+        epsilon_values.append(eps)
+        min_samples_values.append(min_samp)
+        si_values.append(si_score)
+        db_values.append(db_idx)
+        ch_values.append(ch_idx)
+       
+        
+        # Create a Dataframe       
+        metrics_df=pd.DataFrame({
+            'Clusters': num_clusters,
+            'Epsilon' : epsilon_values,
+            'Min_samples': min_samples_values,
+            'SI_Score': np.round(si_values,2),
+            'DB_Score': np.round(db_values,2),
+            'CH_Score': np.round(ch_values,2),            
+            })
+           
+metrics_df.sort_values(by = 'SI_Score', ascending=False)
+
+# Perform DBSCAN clustering
+dbscan = DBSCAN(eps=0.13, min_samples=500)
+labels = dbscan.fit_predict(X_pca)
+print(np.unique(labels))
+# Calculate the silhouette score and adjusted Rand Index (ARI) score
+si_score = silhouette_score(X_pca,labels )
+db_idx = davies_bouldin_score(X_pca,labels)
+ch_idx = calinski_harabasz_score(X_pca,labels)
+# Print the metrics
+print('Silhouetter Score: %.2f' % si_score)
+print('Davies-Bouldin Index: %.2f' % db_idx)
+print('Calinski-Harabasz Index: %.2f' % ch_idx)
+
+Clusters_db = pd.concat([data1, pd.DataFrame({'Cluster':labels+2})], axis=1)
+Clusters_db.head()
+
+# Visualize the distribution of clusters in the data
+sns.countplot(x ='Cluster' , data = Clusters_db)
+
+# 3D Model
+import plotly.graph_objects as go
+
+Plot = go.Figure()
+
+for i in list(np.unique(Clusters_hc["Cluster"])):
+    Plot.add_trace(go.Scatter3d( x = Clusters_db[Clusters_db["Cluster"] == i]["BALANCE"],
+                                 y = Clusters_db[Clusters_db["Cluster"] == i]["PURCHASES"],
+                                 z = Clusters_db[Clusters_db["Cluster"] == i]["CREDIT_LIMIT"],
+                                mode = 'markers' , marker_size = 5 , marker_line_width = 1,
+                                name = str(i)))
+
+
+Plot.update_traces(hovertemplate = 'BALANCE:%{x} <br>PURCHASES %{y} <br> CREDIT_LIMIT:%{z}')
+
+Plot.update_layout(width= 800 , height = 800 , autosize =True , showlegend =True,
+                   scene = dict(xaxis = dict(title = 'BALANCE',titlefont_color = 'black'),
+                                yaxis = dict(title = 'PURCHASES',titlefont_color = 'black'),
+                                zaxis = dict(title = 'CREDIT_LIMIT',titlefont_color = 'black')),
+                   font = dict(family = "Gilroy" , color = 'black', size =12)
+                  )
+
+#Overall K-means clustering algorithm generated good scores with 6 clusters.
+
+
+
